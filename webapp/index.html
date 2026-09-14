@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>F1 Explorer</title>
+  </head>
+  <body>
+    <div id="app">
+      <div id="map"></div>
+
+      <button id="panel-toggle" aria-label="Afficher/masquer le panneau">☰</button>
+
+      <aside id="panel">
+        <header id="panel-header">
+          <h1>F1 Explorer</h1>
+          <p class="subtitle">Calendriers &amp; circuits, saison par saison</p>
+        </header>
+
+        <section id="season-control">
+          <div class="season-nav">
+            <button id="prev-season" aria-label="Saison précédente">&larr;</button>
+            <div class="season-year" id="season-year">—</div>
+            <button id="next-season" aria-label="Saison suivante">&rarr;</button>
+          </div>
+          <input type="range" id="season-slider" min="0" max="0" step="1" value="0" />
+          <div class="season-meta" id="season-meta"></div>
+        </section>
+
+        <section id="playback">
+          <button id="play-btn">▶ Parcourir la saison</button>
+        </section>
+
+        <ol id="race-list"></ol>
+      </aside>
+
+      <div id="popup-template" hidden>
+        <div class="popup-round"></div>
+        <div class="popup-gp"></div>
+        <div class="popup-circuit"></div>
+        <div class="popup-date"></div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
