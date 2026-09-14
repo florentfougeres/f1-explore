@@ -12,6 +12,10 @@ dist
 dist-ssr
 *.local
 
+# Copiés depuis node_modules à chaque dev/build (voir scripts/copy-maplibre-worker.mjs)
+public/maplibre-gl-worker.mjs
+public/maplibre-gl-shared.mjs
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

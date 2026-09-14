@@ -1,6 +1,11 @@
-import { Map, NavigationControl, Popup, LngLatBounds } from "maplibre-gl";
+import { Map, NavigationControl, Popup, LngLatBounds, setWorkerUrl } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./style.css";
+
+// new URL(...) dynamique dans maplibre-gl : Vite ne peut pas le bundler,
+// on pointe donc explicitement vers la copie générée par
+// scripts/copy-maplibre-worker.mjs (voir predev/prebuild).
+setWorkerUrl(`${import.meta.env.BASE_URL}maplibre-gl-worker.mjs`);
 
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
 const SOURCE_ID = "season-races";
@@ -263,7 +268,7 @@ seasonSlider.addEventListener("input", (e) => {
 });
 
 async function init() {
-  const res = await fetch("/data/seasons.json");
+  const res = await fetch(`${import.meta.env.BASE_URL}data/seasons.json`);
   seasons = await res.json();
   years = Object.keys(seasons).sort((a, b) => Number(a) - Number(b));
   seasonSlider.max = years.length - 1;
