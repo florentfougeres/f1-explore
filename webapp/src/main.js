@@ -7,41 +7,69 @@ import "./style.css";
 // scripts/copy-maplibre-worker.mjs (voir predev/prebuild).
 setWorkerUrl(`${import.meta.env.BASE_URL}maplibre-gl-worker.mjs`);
 
-// Tuiles satellite Google via leur endpoint non documenté (pas d'API
-// officielle/clé nécessaire, mais hors CGU Google — peut être bloqué ou
-// changer de comportement sans préavis). À remplacer par Esri World
-// Imagery ou l'API officielle Google Maps Platform si ça casse.
-const MAP_STYLE = {
-  version: 8,
-  sources: {
-    "google-satellite": {
-      type: "raster",
-      tiles: [
-        "https://mt0.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
-        "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
-        "https://mt2.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
-        "https://mt3.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
-      ],
-      tileSize: 256,
-      maxzoom: 20,
-      attribution: "© Google",
+// Deux fonds de carte au choix (bascule via les boutons #basemap-toggle) :
+// satellite Google (tuiles non documentées, pas d'API/clé nécessaire mais
+// hors CGU Google — peut être bloqué ou changer de comportement sans
+// préavis ; remplacer par Esri World Imagery ou l'API officielle Google
+// Maps Platform si ça casse), et le style vectoriel OpenFreeMap "positron".
+const BASEMAPS = {
+  satellite: {
+    version: 8,
+    sources: {
+      "google-satellite": {
+        type: "raster",
+        tiles: [
+          "https://mt0.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+          "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+          "https://mt2.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+          "https://mt3.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+        ],
+        tileSize: 256,
+        maxzoom: 20,
+        attribution: "© Google",
+      },
     },
+    glyphs: "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
+    layers: [{ id: "google-satellite", type: "raster", source: "google-satellite" }],
   },
-  glyphs: "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
-  layers: [{ id: "google-satellite", type: "raster", source: "google-satellite" }],
+  streets: "https://tiles.openfreemap.org/styles/positron",
 };
+let currentBasemap = "satellite";
+
 const SOURCE_ID = "season-races";
 const TRACK_SOURCE_ID = "circuit-track";
 const EMPTY_TRACK = { type: "FeatureCollection", features: [] };
 
 const map = new Map({
   container: "map",
-  style: MAP_STYLE,
+  style: BASEMAPS[currentBasemap],
   center: [10, 25],
   zoom: 1.6,
   attributionControl: { compact: true },
 });
 map.addControl(new NavigationControl({ showCompass: false }), "bottom-right");
+
+const basemapButtons = document.querySelectorAll("#basemap-toggle button");
+basemapButtons.forEach((btn) => {
+  btn.addEventListener("click", () => switchBasemap(btn.dataset.basemap));
+});
+
+function switchBasemap(id) {
+  if (id === currentBasemap || !BASEMAPS[id]) return;
+  currentBasemap = id;
+  basemapButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.basemap === id));
+
+  map.once("style.load", () => {
+    addDataLayers();
+    map.getSource(SOURCE_ID).setData(toGeoJSON(currentRaces));
+    if (selectedRound !== null) {
+      const round = selectedRound;
+      selectedRound = null;
+      selectRace(round, { fly: false, openPopup: false });
+    }
+  });
+  map.setStyle(BASEMAPS[id]);
+}
 
 const panel = document.getElementById("panel");
 const panelToggle = document.getElementById("panel-toggle");
@@ -77,7 +105,7 @@ function toGeoJSON(races) {
   };
 }
 
-function setupLayers() {
+function addDataLayers() {
   map.addSource(TRACK_SOURCE_ID, { type: "geojson", data: EMPTY_TRACK });
   map.addLayer({
     id: "track-casing",
@@ -133,7 +161,9 @@ function setupLayers() {
       "text-color": ["case", ["boolean", ["feature-state", "selected"], false], "#ffffff", "#e10600"],
     },
   });
+}
 
+function bindEvents() {
   map.on("mouseenter", "circuit-dots", () => (map.getCanvas().style.cursor = "pointer"));
   map.on("mouseleave", "circuit-dots", () => (map.getCanvas().style.cursor = ""));
 
@@ -306,7 +336,8 @@ async function init() {
   );
 
   await new Promise((resolve) => map.on("load", resolve));
-  setupLayers();
+  addDataLayers();
+  bindEvents();
   renderSeason(years[years.length - 1]);
 }
 
