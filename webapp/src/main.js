@@ -9,7 +9,8 @@ setWorkerUrl(`${import.meta.env.BASE_URL}maplibre-gl-worker.mjs`);
 
 const MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
 const SOURCE_ID = "season-races";
-const ROUTE_SOURCE_ID = "season-route";
+const TRACK_SOURCE_ID = "circuit-track";
+const EMPTY_TRACK = { type: "FeatureCollection", features: [] };
 
 const map = new Map({
   container: "map",
@@ -34,6 +35,7 @@ panelToggle.addEventListener("click", () => panel.classList.toggle("collapsed"))
 
 let seasons = {};
 let years = [];
+let tracksByCircuitId = {};
 let currentYear = null;
 let currentRaces = [];
 let selectedRound = null;
@@ -53,34 +55,21 @@ function toGeoJSON(races) {
   };
 }
 
-function toRouteGeoJSON(races) {
-  return {
-    type: "FeatureCollection",
-    features: [
-      {
-        type: "Feature",
-        geometry: {
-          type: "LineString",
-          coordinates: races.map((r) => [r.lon, r.lat]),
-        },
-        properties: {},
-      },
-    ],
-  };
-}
-
 function setupLayers() {
-  map.addSource(ROUTE_SOURCE_ID, { type: "geojson", data: toRouteGeoJSON([]) });
+  map.addSource(TRACK_SOURCE_ID, { type: "geojson", data: EMPTY_TRACK });
   map.addLayer({
-    id: "route-line",
+    id: "track-casing",
     type: "line",
-    source: ROUTE_SOURCE_ID,
-    paint: {
-      "line-color": "#e10600",
-      "line-width": 1.5,
-      "line-dasharray": [2, 2],
-      "line-opacity": 0.55,
-    },
+    source: TRACK_SOURCE_ID,
+    layout: { "line-join": "round", "line-cap": "round" },
+    paint: { "line-color": "#ffffff", "line-width": 6, "line-opacity": 0.9 },
+  });
+  map.addLayer({
+    id: "track-line",
+    type: "line",
+    source: TRACK_SOURCE_ID,
+    layout: { "line-join": "round", "line-cap": "round" },
+    paint: { "line-color": "#e10600", "line-width": 3 },
   });
 
   map.addSource(SOURCE_ID, { type: "geojson", data: toGeoJSON([]) });
@@ -145,7 +134,13 @@ function clearSelection() {
     popup.remove();
     popup = null;
   }
+  map.getSource(TRACK_SOURCE_ID)?.setData(EMPTY_TRACK);
   document.querySelectorAll("#race-list li.selected").forEach((li) => li.classList.remove("selected"));
+}
+
+function trackBounds(feature) {
+  const coords = feature.geometry.coordinates;
+  return coords.reduce((b, c) => b.extend(c), new LngLatBounds(coords[0], coords[0]));
 }
 
 function selectRace(round, { fly = false, openPopup = false } = {}) {
@@ -162,8 +157,15 @@ function selectRace(round, { fly = false, openPopup = false } = {}) {
     li.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 
+  const track = tracksByCircuitId[race.circuit_id];
+  map.getSource(TRACK_SOURCE_ID)?.setData(track ? { type: "FeatureCollection", features: [track] } : EMPTY_TRACK);
+
   if (fly) {
-    map.flyTo({ center: [race.lon, race.lat], zoom: 6, speed: 0.9, curve: 1.3 });
+    if (track) {
+      map.fitBounds(trackBounds(track), { padding: 90, maxZoom: 17, duration: 1200 });
+    } else {
+      map.flyTo({ center: [race.lon, race.lat], zoom: 15, speed: 0.9, curve: 1.3 });
+    }
   }
 
   if (openPopup) {
@@ -173,7 +175,8 @@ function selectRace(round, { fly = false, openPopup = false } = {}) {
     node.removeAttribute("id");
     node.querySelector(".popup-round").textContent = `Round ${race.round}`;
     node.querySelector(".popup-gp").textContent = race.grand_prix;
-    node.querySelector(".popup-circuit").textContent = `${race.name} — ${race.location}, ${race.country}`;
+    const lengthKm = track?.properties?.length ? ` · ${(track.properties.length / 1000).toFixed(3)} km` : "";
+    node.querySelector(".popup-circuit").textContent = `${race.name} — ${race.location}, ${race.country}${lengthKm}`;
     node.querySelector(".popup-date").textContent = race.date ? `${race.date} ${currentYear}` : currentYear;
 
     popup = new Popup({ closeOnClick: false, offset: 14 })
@@ -223,7 +226,6 @@ function renderSeason(year) {
   seasonSlider.value = years.indexOf(year);
 
   map.getSource(SOURCE_ID).setData(toGeoJSON(currentRaces));
-  map.getSource(ROUTE_SOURCE_ID).setData(toRouteGeoJSON(currentRaces));
 
   renderRaceList(currentRaces);
   fitToRaces(currentRaces);
@@ -268,10 +270,18 @@ seasonSlider.addEventListener("input", (e) => {
 });
 
 async function init() {
-  const res = await fetch(`${import.meta.env.BASE_URL}data/seasons.json`);
-  seasons = await res.json();
+  const [seasonsRes, tracksRes] = await Promise.all([
+    fetch(`${import.meta.env.BASE_URL}data/seasons.json`),
+    fetch(`${import.meta.env.BASE_URL}data/tracks.geojson`),
+  ]);
+  seasons = await seasonsRes.json();
   years = Object.keys(seasons).sort((a, b) => Number(a) - Number(b));
   seasonSlider.max = years.length - 1;
+
+  const tracksFC = await tracksRes.json();
+  tracksByCircuitId = Object.fromEntries(
+    tracksFC.features.map((f) => [f.properties.circuit_id, f])
+  );
 
   await new Promise((resolve) => map.on("load", resolve));
   setupLayers();
