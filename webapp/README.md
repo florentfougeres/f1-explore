@@ -42,8 +42,14 @@ Une fois fait, l'app est servie sur `https://<owner>.github.io/f1-explore/`.
 
 ## Notes
 
-- Fond de carte : [OpenFreeMap](https://openfreemap.org/) (style "positron",
-  gratuit, sans clé API).
+- Fond de carte : imagerie satellite Google via son endpoint de tuiles
+  non documenté (`mt{0-3}.google.com/vt/lyrs=s`), voir le commentaire
+  dans `src/main.js`. **Pas d'API officielle ni de clé** — usage hors
+  CGU Google, qui peut bloquer ou faire évoluer cet endpoint sans
+  préavis. Si ça casse : remplacer par
+  [Esri World Imagery](https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer)
+  (gratuit, sans clé, même usage) ou par l'API officielle Google Maps
+  Platform (clé + facturation).
 - Les coordonnées des circuits (`data/circuits.csv`) sont approximatives —
   à vérifier avant tout usage nécessitant une précision cartographique fine.
 - Certaines saisons (2021-2026) n'ont pas de date de course dans les

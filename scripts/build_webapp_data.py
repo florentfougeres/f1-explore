@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Fusionne data/f1_calendars.csv et data/circuits.csv pour produire le JSON
-consommé par la web app MapLibre (webapp/public/data/seasons.json).
+consommé par la web app MapLibre (webapp/public/data/seasons.json), et
+regroupe data/tracks/*.geojson en un seul webapp/public/data/tracks.geojson.
 
 Usage :
     python build_webapp_data.py
@@ -14,7 +15,10 @@ from pathlib import Path
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 CALENDARS_CSV = DATA_DIR / "f1_calendars.csv"
 CIRCUITS_CSV = DATA_DIR / "circuits.csv"
-OUTPUT_JSON = Path(__file__).resolve().parent.parent / "webapp" / "public" / "data" / "seasons.json"
+TRACKS_DIR = DATA_DIR / "tracks"
+PUBLIC_DATA_DIR = Path(__file__).resolve().parent.parent / "webapp" / "public" / "data"
+OUTPUT_JSON = PUBLIC_DATA_DIR / "seasons.json"
+OUTPUT_TRACKS_JSON = PUBLIC_DATA_DIR / "tracks.geojson"
 
 
 def load_circuits() -> dict[str, dict]:
@@ -42,8 +46,28 @@ def split_raw_circuit(raw: str) -> tuple[str, str]:
     return name, location
 
 
+def build_tracks() -> set[str]:
+    """Fusionne data/tracks/*.geojson en un seul FeatureCollection et
+    retourne l'ensemble des circuit_id qui ont un tracé."""
+    features = []
+    circuit_ids_with_track = set()
+    for path in sorted(TRACKS_DIR.glob("*.geojson")):
+        fc = json.loads(path.read_text(encoding="utf-8"))
+        for feature in fc["features"]:
+            features.append(feature)
+            circuit_ids_with_track.add(feature["properties"]["circuit_id"])
+
+    PUBLIC_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with open(OUTPUT_TRACKS_JSON, "w", encoding="utf-8") as f:
+        json.dump({"type": "FeatureCollection", "features": features}, f, ensure_ascii=False)
+
+    print(f"OK — {len(features)} tracés écrits dans {OUTPUT_TRACKS_JSON}")
+    return circuit_ids_with_track
+
+
 def main() -> None:
     circuits_by_alias = load_circuits()
+    circuit_ids_with_track = build_tracks()
 
     seasons: dict[str, list[dict]] = {}
     with open(CALENDARS_CSV, encoding="utf-8-sig") as f:
@@ -62,6 +86,7 @@ def main() -> None:
                 "date": row["Date"],
                 "name": name,
                 "location": location,
+                "has_track": geo["circuit_id"] in circuit_ids_with_track,
                 **geo,
             })
 

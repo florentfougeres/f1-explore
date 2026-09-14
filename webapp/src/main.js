@@ -7,18 +7,69 @@ import "./style.css";
 // scripts/copy-maplibre-worker.mjs (voir predev/prebuild).
 setWorkerUrl(`${import.meta.env.BASE_URL}maplibre-gl-worker.mjs`);
 
-const MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
+// Deux fonds de carte au choix (bascule via les boutons #basemap-toggle) :
+// satellite Google (tuiles non documentées, pas d'API/clé nécessaire mais
+// hors CGU Google — peut être bloqué ou changer de comportement sans
+// préavis ; remplacer par Esri World Imagery ou l'API officielle Google
+// Maps Platform si ça casse), et le style vectoriel OpenFreeMap "positron".
+const BASEMAPS = {
+  satellite: {
+    version: 8,
+    sources: {
+      "google-satellite": {
+        type: "raster",
+        tiles: [
+          "https://mt0.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+          "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+          "https://mt2.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+          "https://mt3.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+        ],
+        tileSize: 256,
+        maxzoom: 20,
+        attribution: "© Google",
+      },
+    },
+    glyphs: "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
+    layers: [{ id: "google-satellite", type: "raster", source: "google-satellite" }],
+  },
+  streets: "https://tiles.openfreemap.org/styles/positron",
+};
+let currentBasemap = "satellite";
+
 const SOURCE_ID = "season-races";
-const ROUTE_SOURCE_ID = "season-route";
+const TRACK_SOURCE_ID = "circuit-track";
+const EMPTY_TRACK = { type: "FeatureCollection", features: [] };
 
 const map = new Map({
   container: "map",
-  style: MAP_STYLE,
+  style: BASEMAPS[currentBasemap],
   center: [10, 25],
   zoom: 1.6,
   attributionControl: { compact: true },
 });
 map.addControl(new NavigationControl({ showCompass: false }), "bottom-right");
+
+const basemapButtons = document.querySelectorAll("#basemap-toggle button");
+basemapButtons.forEach((btn) => {
+  btn.addEventListener("click", () => switchBasemap(btn.dataset.basemap));
+});
+
+function switchBasemap(id) {
+  if (id === currentBasemap || !BASEMAPS[id]) return;
+  currentBasemap = id;
+  basemapButtons.forEach((btn) => btn.classList.toggle("active", btn.dataset.basemap === id));
+
+  map.once("style.load", () => {
+    addDataLayers();
+    map.getSource(SOURCE_ID).setData(toGeoJSON(currentRaces));
+    if (selectedRound !== null) {
+      const round = selectedRound;
+      selectedRound = null;
+      selectRace(round, { fly: false, openPopup: false });
+    }
+  });
+  map.setStyle(BASEMAPS[id]);
+}
 
 const panel = document.getElementById("panel");
 const panelToggle = document.getElementById("panel-toggle");
@@ -34,6 +85,7 @@ panelToggle.addEventListener("click", () => panel.classList.toggle("collapsed"))
 
 let seasons = {};
 let years = [];
+let tracksByCircuitId = {};
 let currentYear = null;
 let currentRaces = [];
 let selectedRound = null;
@@ -53,34 +105,21 @@ function toGeoJSON(races) {
   };
 }
 
-function toRouteGeoJSON(races) {
-  return {
-    type: "FeatureCollection",
-    features: [
-      {
-        type: "Feature",
-        geometry: {
-          type: "LineString",
-          coordinates: races.map((r) => [r.lon, r.lat]),
-        },
-        properties: {},
-      },
-    ],
-  };
-}
-
-function setupLayers() {
-  map.addSource(ROUTE_SOURCE_ID, { type: "geojson", data: toRouteGeoJSON([]) });
+function addDataLayers() {
+  map.addSource(TRACK_SOURCE_ID, { type: "geojson", data: EMPTY_TRACK });
   map.addLayer({
-    id: "route-line",
+    id: "track-casing",
     type: "line",
-    source: ROUTE_SOURCE_ID,
-    paint: {
-      "line-color": "#e10600",
-      "line-width": 1.5,
-      "line-dasharray": [2, 2],
-      "line-opacity": 0.55,
-    },
+    source: TRACK_SOURCE_ID,
+    layout: { "line-join": "round", "line-cap": "round" },
+    paint: { "line-color": "#ffffff", "line-width": 6, "line-opacity": 0.9 },
+  });
+  map.addLayer({
+    id: "track-line",
+    type: "line",
+    source: TRACK_SOURCE_ID,
+    layout: { "line-join": "round", "line-cap": "round" },
+    paint: { "line-color": "#e10600", "line-width": 3 },
   });
 
   map.addSource(SOURCE_ID, { type: "geojson", data: toGeoJSON([]) });
@@ -122,7 +161,9 @@ function setupLayers() {
       "text-color": ["case", ["boolean", ["feature-state", "selected"], false], "#ffffff", "#e10600"],
     },
   });
+}
 
+function bindEvents() {
   map.on("mouseenter", "circuit-dots", () => (map.getCanvas().style.cursor = "pointer"));
   map.on("mouseleave", "circuit-dots", () => (map.getCanvas().style.cursor = ""));
 
@@ -145,7 +186,13 @@ function clearSelection() {
     popup.remove();
     popup = null;
   }
+  map.getSource(TRACK_SOURCE_ID)?.setData(EMPTY_TRACK);
   document.querySelectorAll("#race-list li.selected").forEach((li) => li.classList.remove("selected"));
+}
+
+function trackBounds(feature) {
+  const coords = feature.geometry.coordinates;
+  return coords.reduce((b, c) => b.extend(c), new LngLatBounds(coords[0], coords[0]));
 }
 
 function selectRace(round, { fly = false, openPopup = false } = {}) {
@@ -162,8 +209,15 @@ function selectRace(round, { fly = false, openPopup = false } = {}) {
     li.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
 
+  const track = tracksByCircuitId[race.circuit_id];
+  map.getSource(TRACK_SOURCE_ID)?.setData(track ? { type: "FeatureCollection", features: [track] } : EMPTY_TRACK);
+
   if (fly) {
-    map.flyTo({ center: [race.lon, race.lat], zoom: 6, speed: 0.9, curve: 1.3 });
+    if (track) {
+      map.fitBounds(trackBounds(track), { padding: 90, maxZoom: 17, duration: 1200 });
+    } else {
+      map.flyTo({ center: [race.lon, race.lat], zoom: 15, speed: 0.9, curve: 1.3 });
+    }
   }
 
   if (openPopup) {
@@ -173,7 +227,8 @@ function selectRace(round, { fly = false, openPopup = false } = {}) {
     node.removeAttribute("id");
     node.querySelector(".popup-round").textContent = `Round ${race.round}`;
     node.querySelector(".popup-gp").textContent = race.grand_prix;
-    node.querySelector(".popup-circuit").textContent = `${race.name} — ${race.location}, ${race.country}`;
+    const lengthKm = track?.properties?.length ? ` · ${(track.properties.length / 1000).toFixed(3)} km` : "";
+    node.querySelector(".popup-circuit").textContent = `${race.name} — ${race.location}, ${race.country}${lengthKm}`;
     node.querySelector(".popup-date").textContent = race.date ? `${race.date} ${currentYear}` : currentYear;
 
     popup = new Popup({ closeOnClick: false, offset: 14 })
@@ -223,7 +278,6 @@ function renderSeason(year) {
   seasonSlider.value = years.indexOf(year);
 
   map.getSource(SOURCE_ID).setData(toGeoJSON(currentRaces));
-  map.getSource(ROUTE_SOURCE_ID).setData(toRouteGeoJSON(currentRaces));
 
   renderRaceList(currentRaces);
   fitToRaces(currentRaces);
@@ -268,13 +322,22 @@ seasonSlider.addEventListener("input", (e) => {
 });
 
 async function init() {
-  const res = await fetch(`${import.meta.env.BASE_URL}data/seasons.json`);
-  seasons = await res.json();
+  const [seasonsRes, tracksRes] = await Promise.all([
+    fetch(`${import.meta.env.BASE_URL}data/seasons.json`),
+    fetch(`${import.meta.env.BASE_URL}data/tracks.geojson`),
+  ]);
+  seasons = await seasonsRes.json();
   years = Object.keys(seasons).sort((a, b) => Number(a) - Number(b));
   seasonSlider.max = years.length - 1;
 
+  const tracksFC = await tracksRes.json();
+  tracksByCircuitId = Object.fromEntries(
+    tracksFC.features.map((f) => [f.properties.circuit_id, f])
+  );
+
   await new Promise((resolve) => map.on("load", resolve));
-  setupLayers();
+  addDataLayers();
+  bindEvents();
   renderSeason(years[years.length - 1]);
 }
 
