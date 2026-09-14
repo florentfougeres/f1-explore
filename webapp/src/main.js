@@ -7,7 +7,29 @@ import "./style.css";
 // scripts/copy-maplibre-worker.mjs (voir predev/prebuild).
 setWorkerUrl(`${import.meta.env.BASE_URL}maplibre-gl-worker.mjs`);
 
-const MAP_STYLE = "https://tiles.openfreemap.org/styles/positron";
+// Tuiles satellite Google via leur endpoint non documenté (pas d'API
+// officielle/clé nécessaire, mais hors CGU Google — peut être bloqué ou
+// changer de comportement sans préavis). À remplacer par Esri World
+// Imagery ou l'API officielle Google Maps Platform si ça casse.
+const MAP_STYLE = {
+  version: 8,
+  sources: {
+    "google-satellite": {
+      type: "raster",
+      tiles: [
+        "https://mt0.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+        "https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+        "https://mt2.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+        "https://mt3.google.com/vt/lyrs=s&x={x}&y={y}&z={z}",
+      ],
+      tileSize: 256,
+      maxzoom: 20,
+      attribution: "© Google",
+    },
+  },
+  glyphs: "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
+  layers: [{ id: "google-satellite", type: "raster", source: "google-satellite" }],
+};
 const SOURCE_ID = "season-races";
 const TRACK_SOURCE_ID = "circuit-track";
 const EMPTY_TRACK = { type: "FeatureCollection", features: [] };
